@@ -51,7 +51,7 @@ namespace AppleDeveloperAccount
                 aud = AppStoreConnectApiAudience;
             }
 
-            BackDateMinutes = 1;
+            BackDateMinutes = 0;
             ExpireAfterMinutes = 2;
         }
 
@@ -83,9 +83,11 @@ namespace AppleDeveloperAccount
         {
             var iat = EpochTime.GetIntDate (DateTime.UtcNow);
 
+            iat = iat - (BackDateMinutes * 60); // backdate the iat by a few minutes to allow for clock skew
+
             var payload = new JwtPayload ();
             payload.Add (JwtRegisteredClaimNames.Iss, ApiKey.IssuerId);
-            payload.Add (JwtRegisteredClaimNames.Iat, iat - (BackDateMinutes * 60)); // backdate the iat by a few minutes to allow for clock skew
+            payload.Add (JwtRegisteredClaimNames.Iat, iat);
             payload.Add (JwtRegisteredClaimNames.Exp, iat + (ExpireAfterMinutes * 60)); // expiration time
             payload.Add (JwtRegisteredClaimNames.Aud, aud);
 
