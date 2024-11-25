@@ -4,11 +4,17 @@
 
 using System.Security.Cryptography;
 
-using Org.BouncyCastle.OpenSsl;
 using Org.BouncyCastle.Crypto.Parameters;
+using Org.BouncyCastle.OpenSsl;
 
 namespace AppleDeveloperAccount
 {
+	public enum Pkcs8Backend
+	{
+		BouncyCastle,
+		Native
+	}
+
 	public static class Pkcs8Helper
 	{
 		static byte[] GetPaddedByteArray (byte[] bytes, int length)
@@ -23,9 +29,9 @@ namespace AppleDeveloperAccount
 			return padded;
 		}
 
-		public static bool TryGetPrivateKey (string text, out ECDsa? ecdsa)
+		static bool TryGetPrivateKeyWithBouncyCastle (string pemData, out ECDsa? ecdsa)
 		{
-			using (var textReader = new StringReader (text)) {
+			using (var textReader = new StringReader (pemData)) {
 				var pemReader = new PemReader (textReader); // We can't use the equivalent .NET methods, as they require .NET Standard 2.1
 				var item = pemReader.ReadObject ();
 
@@ -53,6 +59,22 @@ namespace AppleDeveloperAccount
 
 				ecdsa = null;
 
+				return false;
+			}
+		}
+
+		public static bool TryGetPrivateKey (Pkcs8Backend backend, string pemData, out ECDsa? ecdsa)
+		{
+			if (backend == Pkcs8Backend.BouncyCastle)
+				return TryGetPrivateKeyWithBouncyCastle (pemData, out ecdsa);
+
+			ecdsa = ECDsa.Create ();
+
+			try {
+				ecdsa.ImportFromPem (pemData);
+				return true;
+			} catch {
+				ecdsa.Dispose ();
 				return false;
 			}
 		}
