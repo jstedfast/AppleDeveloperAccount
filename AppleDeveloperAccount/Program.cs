@@ -2,15 +2,14 @@
 // Copyright (c) Microsoft Corporation. All Rights Reserved.
 // -------------------------------------------------------------------
 
-using System.Security.Cryptography;
-
 namespace AppleDeveloperAccount
 {
     internal class Program
     {
         static void Main (string[] args)
         {
-            var successful = new List<(Pkcs8Backend, AppleAccountType)> ();
+            var successful = new List<(Pkcs8Backend, AppleAccountType, int, int)> ();
+            var logFile = Path.GetFullPath ("apple-developer.log");
             var apiKey = new ApiKey ();
 
             apiKey.IssuerId = GetValue ("Issuer ID: ");
@@ -20,58 +19,82 @@ namespace AppleDeveloperAccount
             var pemData = File.ReadAllText (path);
 
             Console.WriteLine ();
-            foreach (Pkcs8Backend backend in Enum.GetValues (typeof (Pkcs8Backend))) {
-                //Console.WriteLine ($"Attempting to use the {backend} backend for loading PEM private keys...");
+            Console.WriteLine ($"Logging diagnostics to {logFile}...");
+            Console.WriteLine ();
 
-                if (!Pkcs8Helper.TryGetPrivateKey (backend, pemData, out var privateKey)) {
-                    //Console.WriteLine ("Invalid private key.");
-                    continue;
-                }
+            using (var logger = new StreamWriter ("apple-developer.log")) {
+                foreach (Pkcs8Backend backend in Enum.GetValues (typeof (Pkcs8Backend))) {
+                    logger.WriteLine ($"Attempting to use the {backend} backend for loading PEM private keys...");
 
-                apiKey.PrivateKey = privateKey!;
+                    if (!Pkcs8Helper.TryGetPrivateKey (backend, pemData, out var privateKey)) {
+                        logger.WriteLine ($"Error: Failed to load PEM key data using the {backend} backend.");
+                        continue;
+                    }
 
-                Console.WriteLine ();
-                foreach (AppleAccountType accountType in Enum.GetValues (typeof (AppleAccountType))) {
-                    Console.WriteLine ($"Testing {accountType} account + {backend} backend...");
-                    try {
+                    apiKey.PrivateKey = privateKey!;
+
+                    foreach (AppleAccountType accountType in Enum.GetValues (typeof (AppleAccountType))) {
+                        logger.WriteLine ($"Testing {accountType} account + {backend} backend...");
+
                         var client = new AppStoreConnectClient (accountType, apiKey) {
                             BackDateMinutes = 0,
                             ExpireAfterMinutes = 2
                         };
-                        var users = client.GetUsersAsync (CancellationToken.None).GetAwaiter ().GetResult ();
-                        //Console.WriteLine ("Success!");
-                        //Console.WriteLine ();
-                        //Console.WriteLine ($"Users ({users.Count}):");
-                        //foreach (var user in users)
-                        //    Console.WriteLine($"* {user.Attributes?.FirstName} {user.Attributes?.LastName} <{user.Attributes?.Username}> Roles={user.Attributes?.RolesAsString}");
-                        //Console.WriteLine ();
-                        //Console.WriteLine ();
-                        //Console.WriteLine ($"When adding a new Apple Developer Account in Visual Studio, make sure to add an {accountType} account.");
-                        //Console.WriteLine ();
-                        successful.Add ((backend, accountType));
-                    } catch (AppStoreConnectException asce) {
-                        //foreach (var error in asce.Errors) {
-                        //    Console.WriteLine ($"* Error: {error.Title}");
-                        //    Console.WriteLine ($"  Status: {error.Status}");
-                        //    Console.WriteLine ($"  Code: {error.Code}");
-                        //    Console.WriteLine ($"  Detail: {error.Detail}");
-                        //}
-                    } catch (Exception ex) {
-                        //Console.WriteLine ($"Failed: {ex.GetType().Name}: {ex.Message}");
+
+                        if (CanAuthenticate (client, logger)) {
+                            successful.Add ((backend, accountType, client.BackDateMinutes, client.ExpireAfterMinutes));
+                        } else {
+                            client.BackDateMinutes = 10;
+                            client.ExpireAfterMinutes = 20;
+
+                            if (CanAuthenticate (client, logger))
+                                successful.Add ((backend, accountType, client.BackDateMinutes, client.ExpireAfterMinutes));
+                        }
+
+                        logger.WriteLine ();
                     }
-                    //Console.WriteLine ();
                 }
+
+                // Print results to both the console -and- to the diagnostics log file
+                Console.WriteLine ();
+                logger.WriteLine ();
+
+                if (successful.Count > 0) {
+                    Console.WriteLine ("Successful configurations:");
+                    logger.WriteLine ("Successful configurations:");
+                    foreach (var (backend, accountType, backdate, expiresAfter) in successful) {
+                        Console.WriteLine ($"* {accountType} account using the {backend} backend.");
+                        Console.WriteLine ($"\tBackDateMinutes = {backdate}; ExpiresAfterMinutes = {expiresAfter}");
+                        logger.WriteLine ($"* {accountType} account using the {backend} backend.");
+                        logger.WriteLine ($"\tBackDateMinutes = {backdate}; ExpiresAfterMinutes = {expiresAfter}");
+                    }
+                } else {
+                    Console.WriteLine ("No successful configurations.");
+                    logger.WriteLine ("No successful configurations.");
+                }
+            }
+        }
+
+        static bool CanAuthenticate (AppStoreConnectClient client, StreamWriter logger)
+        {
+            try {
+                var users = client.GetUsersAsync (CancellationToken.None).GetAwaiter ().GetResult ();
+                logger.WriteLine ("\tSucessfully authenticated.");
+                logger.WriteLine ($"\tAccount has {users.Count} active users.");
+                return true;
+            } catch (AppStoreConnectException asce) {
+                logger.WriteLine ("\tFailed to authenticate.");
+                foreach (var error in asce.Errors) {
+                    logger.WriteLine ($"\t* Error: {error.Title}");
+                    logger.WriteLine ($"\t  Status: {error.Status}");
+                    logger.WriteLine ($"\t  Code: {error.Code}");
+                    logger.WriteLine ($"\t  Detail: {error.Detail}");
+                }
+            } catch (Exception ex) {
+                logger.WriteLine ($"\tFailed: {ex.GetType ().Name}: {ex.Message}");
             }
 
-            Console.WriteLine ();
-            if (successful.Count > 0) {
-                Console.WriteLine ("Succesasful configurations:");
-                foreach (var (backend, accountType) in successful) {
-                    Console.WriteLine ($"* {accountType} account using the {backend} backend.");
-                }
-            } else {
-                Console.WriteLine ("No successful configurations.");
-            }
+            return false;
         }
 
         static string? Unquote (string? text)

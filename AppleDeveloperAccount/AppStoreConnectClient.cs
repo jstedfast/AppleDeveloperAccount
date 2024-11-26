@@ -86,7 +86,15 @@ namespace AppleDeveloperAccount
             iat = iat - (BackDateMinutes * 60); // backdate the iat by a few minutes to allow for clock skew
 
             var payload = new JwtPayload ();
-            payload.Add (JwtRegisteredClaimNames.Iss, ApiKey.IssuerId);
+            switch (AccountType) {
+            case AppleAccountType.Enterprise:
+            case AppleAccountType.Team:
+                payload.Add (JwtRegisteredClaimNames.Iss, ApiKey.IssuerId);
+                break;
+            default:
+                payload.Add (JwtRegisteredClaimNames.Sub, "user");
+                break;
+            }
             payload.Add (JwtRegisteredClaimNames.Iat, iat);
             payload.Add (JwtRegisteredClaimNames.Exp, iat + (ExpireAfterMinutes * 60)); // expiration time
             payload.Add (JwtRegisteredClaimNames.Aud, aud);

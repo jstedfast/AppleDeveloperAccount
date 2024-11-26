@@ -7,6 +7,7 @@ namespace AppleDeveloperAccount
     public enum AppleAccountType
     {
         Enterprise,
-        Individual
+        Individual,
+        Team
     }
 }
